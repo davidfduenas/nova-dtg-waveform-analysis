@@ -27,7 +27,7 @@ all: $(LIB_TARGET) $(MACRO_TARGETS)
 
 $(LIB_TARGET): $(SRC_DIR)/Waveform.cpp $(SRC_DIR)/Waveform.h
 	mkdir -p $(LIB_DIR)
-	g++ -O2 -shared -fPIC $(ROOTCFLAGS) $(SRC_DIR)/Waveform.cpp -o $(LIB_TARGET) $(ROOTLIBS) $(LIB_INSTALL_NAME)
+	g++ -O2 -shared -fPIC $(ROOTCFLAGS) $(SRC_DIR)/Waveform.cpp $(SRC_DIR)/SignificanceAna.cpp -o $(LIB_TARGET) $(ROOTLIBS) $(LIB_INSTALL_NAME)
 
 # Pattern rule: "to build any file with no extension, from a matching
 # .cpp file of the same name" -- this one rule replaces having to write

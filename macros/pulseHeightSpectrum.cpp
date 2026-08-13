@@ -38,7 +38,7 @@ static const int  RATIO_N_BINS    = 50;
 
 static const double AMP_MIN_ADC    = 0.0;
 static const double AMP_MAX_ADC    = 5000.0;
-static const double AMP_CUTOFF_ADC = 700.0;
+static const double AMP_CUTOFF_ADC = 600.0;
 
 struct EventData {
     Long64_t nEntries;
@@ -110,7 +110,7 @@ std::string recLabel(int recordLength)
 
 void makeSpectrumPlot(const EventData& bkgData, const EventData& dtgonData,
                        double ampMin, double ampMax, const std::string& unitLabel,
-                       double unitScale)
+                       double unitScale, double ampCutoff)
 {
     TH1D* hBkg = new TH1D("hBkg", "Background", SPECTRUM_N_BINS, ampMin, ampMax);
     hBkg->SetLineColor(kBlack);
@@ -150,22 +150,42 @@ void makeSpectrumPlot(const EventData& bkgData, const EventData& dtgonData,
     std::string outName = OUTPUT_PATH + "spectrum_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
     c1->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
+
+    // Same histograms, x-axis restricted to [ampCutoff, ampMax] -- shows
+    // the spectrum shape above the cutoff with everything below it removed
+    // from view (bins below the cutoff still exist in the histogram, just
+    // not displayed).
+    TCanvas* c1z = new TCanvas("c1z", "Pulse Height Spectrum (above cutoff)", 900, 700);
+    c1z->SetGrid();
+    if (USE_LOG_Y) c1z->SetLogy();
+
+    hBkg->GetXaxis()->SetRangeUser(ampCutoff, ampMax);
+    hBkg->Draw("HIST");
+    hDtgOn->Draw("HIST SAME");
+    leg->Draw();
+
+    std::string outNameZ = OUTPUT_PATH + "spectrum_above_cutoff_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    c1z->SaveAs(outNameZ.c_str());
+    std::cout << "Saved: " << outNameZ << std::endl;
 }
 
 void makeCountsPlot(const EventData& bkgData, const EventData& dtgonData,
                      double ampMin, double ampMax, const std::string& unitLabel,
-                     double unitScale, double durationScale)
+                     double unitScale, double ampCutoff)
 {
     TH1D* hBkg = new TH1D("hBkgCounts", "Background", SPECTRUM_N_BINS, ampMin, ampMax);
     hBkg->SetLineColor(kBlack);
     hBkg->SetLineWidth(2);
     for (double a : bkgData.ampsADC) hBkg->Fill(a * unitScale);
-    hBkg->Scale(durationScale);
 
     TH1D* hDtgOn = new TH1D("hDtgOnCounts", "DTG-on", SPECTRUM_N_BINS, ampMin, ampMax);
     hDtgOn->SetLineColor(kRed);
     hDtgOn->SetLineWidth(2);
     for (double a : dtgonData.ampsADC) hDtgOn->Fill(a * unitScale);
+
+    // Scale background to match DTG-on's total count, locally, so both
+    // histograms have equal integrals.
+    if (hBkg->Integral() > 0) hBkg->Scale(hDtgOn->Integral() / hBkg->Integral());
 
     TCanvas* c4 = new TCanvas("c4", "Counts", 900, 700);
     c4->SetGrid();
@@ -193,11 +213,23 @@ void makeCountsPlot(const EventData& bkgData, const EventData& dtgonData,
     std::string outName = OUTPUT_PATH + "counts_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
     c4->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
+
+    TCanvas* c4z = new TCanvas("c4z", "Counts (above cutoff)", 900, 700);
+    c4z->SetGrid();
+    if (USE_LOG_Y) c4z->SetLogy();
+    hBkg->GetXaxis()->SetRangeUser(ampCutoff, ampMax);
+    hBkg->Draw("HIST");
+    hDtgOn->Draw("HIST SAME");
+    leg->Draw();
+
+    std::string outNameZ = OUTPUT_PATH + "counts_above_cutoff_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    c4z->SaveAs(outNameZ.c_str());
+    std::cout << "Saved: " << outNameZ << std::endl;
 }
 
 void makeExcessCountsPlot(const EventData& bkgData, const EventData& dtgonData,
                            double ampMin, double ampMax, const std::string& unitLabel,
-                           double unitScale, double durationScale)
+                           double unitScale, double ampCutoff)
 {
     TH1D* hBkgRaw   = new TH1D("hBkgRawExC",   "Background raw", RATIO_N_BINS, ampMin, ampMax);
     TH1D* hDtgOnRaw = new TH1D("hDtgOnRawExC", "DTG-on raw",     RATIO_N_BINS, ampMin, ampMax);
@@ -205,22 +237,27 @@ void makeExcessCountsPlot(const EventData& bkgData, const EventData& dtgonData,
     for (double a : bkgData.ampsADC)   hBkgRaw->Fill(a * unitScale);
     for (double a : dtgonData.ampsADC) hDtgOnRaw->Fill(a * unitScale);
 
+    // Background scaled to match DTG-on's total count, locally, so both
+    // histograms have equal integrals.
+    double localCountRatio = (hBkgRaw->Integral() > 0)
+        ? hDtgOnRaw->Integral() / hBkgRaw->Integral() : 1.0;
+    TH1D* hBkgScaledHist = (TH1D*)hBkgRaw->Clone("hBkgScaledExC");
+    hBkgScaledHist->Scale(localCountRatio);
+
     TH1D* hExcessCounts = new TH1D("hExcessCounts", "Excess Counts", RATIO_N_BINS, ampMin, ampMax);
 
     for (int bin = 1; bin <= RATIO_N_BINS; bin++) {
         double nBkgRaw   = hBkgRaw->GetBinContent(bin);
         double nDtgOnRaw = hDtgOnRaw->GetBinContent(bin);
-
-        // Background scaled to DTG-on's exposure time, same as the counts plot.
-        double nBkgScaled = nBkgRaw * durationScale;
+        double nBkgScaled = hBkgScaledHist->GetBinContent(bin);
 
         double excess = nDtgOnRaw - nBkgScaled;
         hExcessCounts->SetBinContent(bin, excess);
 
         // Error propagation: sigma(nBkgRaw)=sqrt(nBkgRaw), scaled by the same
-        // durationScale factor; sigma(nDtgOnRaw)=sqrt(nDtgOnRaw). Independent,
+        // localCountRatio factor; sigma(nDtgOnRaw)=sqrt(nDtgOnRaw). Independent,
         // so variances add.
-        double sigmaBkgScaled = std::sqrt(nBkgRaw) * durationScale;
+        double sigmaBkgScaled = std::sqrt(nBkgRaw) * localCountRatio;
         double sigmaDtgOn     = std::sqrt(nDtgOnRaw);
         double error = std::sqrt(sigmaDtgOn*sigmaDtgOn + sigmaBkgScaled*sigmaBkgScaled);
         hExcessCounts->SetBinError(bin, error);
@@ -249,6 +286,37 @@ void makeExcessCountsPlot(const EventData& bkgData, const EventData& dtgonData,
     std::string outName = OUTPUT_PATH + "excess_counts_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
     c5->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
+
+    TCanvas* c5z = new TCanvas("c5z", "Excess Counts (above cutoff)", 900, 700);
+    c5z->SetGrid();
+    hExcessCounts->GetXaxis()->SetRangeUser(ampCutoff, ampMax);
+
+    // Auto y-scaling normally looks at ALL bins, including the huge
+    // Bin1/Bin2 seesaw values that sit off-screen below ampCutoff -- which
+    // would squash this plot flat exactly like the original excess plot.
+    // Compute min/max only over the bins actually visible in this range.
+    double visMax = -1e300, visMin = 1e300;
+    for (int bin = 1; bin <= RATIO_N_BINS; bin++) {
+        double lowEdge = hExcessCounts->GetBinLowEdge(bin);
+        if (lowEdge < ampCutoff) continue;
+        double val = hExcessCounts->GetBinContent(bin);
+        double err = hExcessCounts->GetBinError(bin);
+        visMax = std::max(visMax, val + err);
+        visMin = std::min(visMin, val - err);
+    }
+    double pad = 0.1 * (visMax - visMin);
+    hExcessCounts->SetMaximum(visMax + pad);
+    hExcessCounts->SetMinimum(visMin - pad);
+
+    hExcessCounts->Draw("E1");
+    TLine* zeroLineZ = new TLine(ampCutoff, 0.0, ampMax, 0.0);
+    zeroLineZ->SetLineStyle(2);
+    zeroLineZ->SetLineColor(kGray+2);
+    zeroLineZ->Draw("SAME");
+
+    std::string outNameZ = OUTPUT_PATH + "excess_counts_above_cutoff_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    c5z->SaveAs(outNameZ.c_str());
+    std::cout << "Saved: " << outNameZ << std::endl;
 }
 
 void makeRatioPlot(const EventData& bkgData, const EventData& dtgonData,
@@ -260,6 +328,13 @@ void makeRatioPlot(const EventData& bkgData, const EventData& dtgonData,
 
     for (double a : bkgData.ampsADC)   hBkgRaw->Fill(a * unitScale);
     for (double a : dtgonData.ampsADC) hDtgOnRaw->Fill(a * unitScale);
+
+    // Convert background to a rate using Scale() -- normalization step
+    // done explicitly via Scale(), not folded into a Divide() call.
+    TH1D* hBkgRate = (TH1D*)hBkgRaw->Clone("hBkgRate");
+    hBkgRate->Scale(1.0 / bkgData.duration);
+    TH1D* hDtgOnRate = (TH1D*)hDtgOnRaw->Clone("hDtgOnRate");
+    hDtgOnRate->Scale(1.0 / dtgonData.duration);
 
     TH1D* hRatio = new TH1D("hRatio", "Ratio", RATIO_N_BINS, ampMin, ampMax);
 
@@ -273,8 +348,8 @@ void makeRatioPlot(const EventData& bkgData, const EventData& dtgonData,
             continue;
         }
 
-        double rateBkg   = nBkg   / bkgData.duration;
-        double rateDtgOn = nDtgOn / dtgonData.duration;
+        double rateBkg   = hBkgRate->GetBinContent(bin);
+        double rateDtgOn = hDtgOnRate->GetBinContent(bin);
         double ratio = rateDtgOn / rateBkg;
 
         double relError = std::sqrt(1.0/nDtgOn + 1.0/nBkg);
@@ -307,7 +382,102 @@ void makeRatioPlot(const EventData& bkgData, const EventData& dtgonData,
     std::string outName = OUTPUT_PATH + "ratio_spectrum_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
     c2->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
+
+    // Zoomed-in version (0-1000 ADC), same histogram, separate file.
+    TCanvas* c2z = new TCanvas("c2z", "Ratio Spectrum (Zoomed)", 900, 700);
+    c2z->SetGrid();
+    hRatio->GetXaxis()->SetRangeUser(ampMin, 1000.0 * unitScale);
+    hRatio->Draw("E1");
+
+    TLine* lineZ = new TLine(ampMin, 1.0, 1000.0 * unitScale, 1.0);
+    lineZ->SetLineStyle(2);
+    lineZ->SetLineColor(kGray+2);
+    lineZ->Draw("SAME");
+
+    std::string outNameZ = OUTPUT_PATH + "ratio_spectrum_zoom_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    c2z->SaveAs(outNameZ.c_str());
+    std::cout << "Saved: " << outNameZ << std::endl;
 }
+
+// Simple counts-based ratio: DTG-on raw counts / background counts scaled
+// to match locally (equal integrals), no per-run rate calculation.
+void makeCountsRatioPlot(const EventData& bkgData, const EventData& dtgonData,
+                          double ampMin, double ampMax, const std::string& unitLabel,
+                          double unitScale)
+{
+    TH1D* hBkgRaw   = new TH1D("hBkgRawCR",   "Background raw", RATIO_N_BINS, ampMin, ampMax);
+    TH1D* hDtgOnRaw = new TH1D("hDtgOnRawCR", "DTG-on raw",     RATIO_N_BINS, ampMin, ampMax);
+
+    for (double a : bkgData.ampsADC)   hBkgRaw->Fill(a * unitScale);
+    for (double a : dtgonData.ampsADC) hDtgOnRaw->Fill(a * unitScale);
+
+    // Background scaled to match DTG-on's total count, locally.
+    double localCountRatio = (hBkgRaw->Integral() > 0)
+        ? hDtgOnRaw->Integral() / hBkgRaw->Integral() : 1.0;
+    TH1D* hBkgScaledHist = (TH1D*)hBkgRaw->Clone("hBkgScaledCR");
+    hBkgScaledHist->Scale(localCountRatio);
+
+    TH1D* hCountsRatio = new TH1D("hCountsRatio", "Counts Ratio", RATIO_N_BINS, ampMin, ampMax);
+
+    for (int bin = 1; bin <= RATIO_N_BINS; bin++) {
+        double nBkgRaw = hBkgRaw->GetBinContent(bin);
+        double nDtgOn  = hDtgOnRaw->GetBinContent(bin);
+        double nBkgScaled = hBkgScaledHist->GetBinContent(bin);
+
+        if (nBkgScaled <= 0 || nDtgOn <= 0) {
+            hCountsRatio->SetBinContent(bin, 0);
+            hCountsRatio->SetBinError(bin, 0);
+            continue;
+        }
+
+        double ratio = nDtgOn / nBkgScaled;
+        double relError = std::sqrt(1.0/nDtgOn + 1.0/nBkgRaw);
+        double error = ratio * relError;
+
+        hCountsRatio->SetBinContent(bin, ratio);
+        hCountsRatio->SetBinError(bin, error);
+    }
+
+    TCanvas* c8 = new TCanvas("c8", "Counts Ratio", 900, 700);
+    c8->SetGrid();
+
+    hCountsRatio->SetLineColor(kBlue);
+    hCountsRatio->SetMarkerColor(kBlue);
+    hCountsRatio->SetMarkerStyle(20);
+    hCountsRatio->SetLineWidth(2);
+
+    hCountsRatio->GetXaxis()->SetTitle(("Max Amplitude (" + unitLabel + ")").c_str());
+    hCountsRatio->GetXaxis()->CenterTitle();
+    hCountsRatio->GetYaxis()->SetTitle("DTG-on counts / Background counts (normalized)");
+    hCountsRatio->GetYaxis()->CenterTitle();
+
+    hCountsRatio->Draw("E1");
+
+    TLine* line2 = new TLine(ampMin, 1.0, ampMax, 1.0);
+    line2->SetLineStyle(2);
+    line2->SetLineColor(kGray+2);
+    line2->Draw("SAME");
+
+    std::string outName2 = OUTPUT_PATH + "counts_ratio_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    c8->SaveAs(outName2.c_str());
+    std::cout << "Saved: " << outName2 << std::endl;
+
+    // Zoomed-in version (0-1000 ADC), same histogram, separate file.
+    TCanvas* c8z = new TCanvas("c8z", "Counts Ratio (Zoomed)", 900, 700);
+    c8z->SetGrid();
+    hCountsRatio->GetXaxis()->SetRangeUser(ampMin, 1000.0 * unitScale);
+    hCountsRatio->Draw("E1");
+
+    TLine* line2z = new TLine(ampMin, 1.0, 1000.0 * unitScale, 1.0);
+    line2z->SetLineStyle(2);
+    line2z->SetLineColor(kGray+2);
+    line2z->Draw("SAME");
+
+    std::string outName2z = OUTPUT_PATH + "counts_ratio_zoom_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    c8z->SaveAs(outName2z.c_str());
+    std::cout << "Saved: " << outName2z << std::endl;
+}
+
 
 void makeExcessRatePlot(const EventData& bkgData, const EventData& dtgonData,
                          double ampMin, double ampMax, double ampCutoff,
@@ -391,6 +561,12 @@ void computeExcessRate(const EventData& bkgData, const EventData& dtgonData,
     double totalExcess = 0;
     double totalVariance = 0;
 
+    // Convert both to rates via explicit Scale() before summing.
+    TH1D* hBkgRate   = (TH1D*)hBkgRaw->Clone("hBkgRateTotal");
+    hBkgRate->Scale(1.0 / bkgData.duration);
+    TH1D* hDtgOnRate = (TH1D*)hDtgOnRaw->Clone("hDtgOnRateTotal");
+    hDtgOnRate->Scale(1.0 / dtgonData.duration);
+
     for (int bin = 1; bin <= RATIO_N_BINS; bin++) {
         double binCenter = hBkgRaw->GetBinCenter(bin);
         if (binCenter <= ampCutoff) continue;
@@ -398,8 +574,8 @@ void computeExcessRate(const EventData& bkgData, const EventData& dtgonData,
         double nBkg   = hBkgRaw->GetBinContent(bin);
         double nDtgOn = hDtgOnRaw->GetBinContent(bin);
 
-        double rateBkg   = nBkg   / bkgData.duration;
-        double rateDtgOn = nDtgOn / dtgonData.duration;
+        double rateBkg   = hBkgRate->GetBinContent(bin);
+        double rateDtgOn = hDtgOnRate->GetBinContent(bin);
 
         double excessBin = rateDtgOn - rateBkg;
         totalExcess += excessBin;
@@ -455,12 +631,11 @@ int main(int argc, char** argv)
     EventData bkgData   = readAllAmps(bkgFile);
     EventData dtgonData = readAllAmps(dtgonFile);
 
-    double durationScale = dtgonData.duration / bkgData.duration;
-
-    makeSpectrumPlot(bkgData, dtgonData, ampMin, ampMax, unitLabel, unitScale);
-    makeCountsPlot(bkgData, dtgonData, ampMin, ampMax, unitLabel, unitScale, durationScale);
-    makeExcessCountsPlot(bkgData, dtgonData, ampMin, ampMax, unitLabel, unitScale, durationScale);
+    makeSpectrumPlot(bkgData, dtgonData, ampMin, ampMax, unitLabel, unitScale, ampCutoff);
+    makeCountsPlot(bkgData, dtgonData, ampMin, ampMax, unitLabel, unitScale, ampCutoff);
+    makeExcessCountsPlot(bkgData, dtgonData, ampMin, ampMax, unitLabel, unitScale, ampCutoff);
     makeRatioPlot(bkgData, dtgonData, ampMin, ampMax, unitLabel, unitScale);
+    makeCountsRatioPlot(bkgData, dtgonData, ampMin, ampMax, unitLabel, unitScale);
     makeExcessRatePlot(bkgData, dtgonData, ampMin, ampMax, ampCutoff, unitLabel, unitScale);
     computeExcessRate(bkgData, dtgonData, ampMin, ampMax, ampCutoff, unitLabel, unitScale);
 
