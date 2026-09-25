@@ -206,7 +206,7 @@ void convertOneFile(const std::string& path)
 void Convert(const char* files = "")
 {
     // >>> SET YOUR DATA DIRECTORY HERE <
-    std::string dataPath = "/Users/david/DTGAnalysis/data/testruns/";
+    std::string dataPath = "/Users/david/DTGAnalysis/data/sepruns/";
 
     std::vector<std::string> fileList;
     std::istringstream ss(files);
