@@ -4,13 +4,14 @@ ROOTLIBS   := $(shell root-config --libs)
 SRC_DIR    := src
 LIB_DIR    := lib
 MACRO_DIR  := macros
+BUILD_DIR  := build
 
 LIB_TARGET := $(LIB_DIR)/libWaveform.so
 
 # Automatically find every .cpp file in macros/, and build a matching
-# executable (same name, no extension) for each one.
+# executable (same name, no extension) in build/ for each one.
 MACRO_SOURCES := $(wildcard $(MACRO_DIR)/*.cpp)
-MACRO_TARGETS := $(MACRO_SOURCES:.cpp=)
+MACRO_TARGETS := $(patsubst $(MACRO_DIR)/%.cpp,$(BUILD_DIR)/%,$(MACRO_SOURCES))
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -25,17 +26,17 @@ endif
 
 all: $(LIB_TARGET) $(MACRO_TARGETS)
 
-$(LIB_TARGET): $(SRC_DIR)/Waveform.cpp $(SRC_DIR)/Waveform.h
+$(LIB_TARGET): $(SRC_DIR)/Waveform.cpp $(SRC_DIR)/Waveform.h $(SRC_DIR)/PSD.cpp $(SRC_DIR)/PSD.h $(SRC_DIR)/NeutronCurveOverlay.cpp $(SRC_DIR)/NeutronCurveOverlay.h
 	mkdir -p $(LIB_DIR)
-	g++ -O2 -shared -fPIC $(ROOTCFLAGS) $(SRC_DIR)/Waveform.cpp $(SRC_DIR)/SignificanceAna.cpp -o $(LIB_TARGET) $(ROOTLIBS) $(LIB_INSTALL_NAME)
+	g++ -O2 -shared -fPIC $(ROOTCFLAGS) $(SRC_DIR)/Waveform.cpp $(SRC_DIR)/PSD.cpp $(SRC_DIR)/NeutronCurveOverlay.cpp -o $(LIB_TARGET) $(ROOTLIBS) $(LIB_INSTALL_NAME)
 
-# Pattern rule: "to build any file with no extension, from a matching
-# .cpp file of the same name" -- this one rule replaces having to write
-# a separate rule for every single program.
-$(MACRO_DIR)/%: $(MACRO_DIR)/%.cpp $(LIB_TARGET)
+# Pattern rule: "to build build/<name>, from macros/<name>.cpp"
+$(BUILD_DIR)/%: $(MACRO_DIR)/%.cpp $(LIB_TARGET)
+	mkdir -p $(BUILD_DIR)
 	g++ -O2 $(ROOTCFLAGS) -I$(SRC_DIR) $< \
 	    -L$(LIB_DIR) -lWaveform $(ROOTLIBS) $(EXE_RPATH) \
 	    -o $@
 
 clean:
-	rm -f $(LIB_TARGET) $(MACRO_TARGETS)
+	rm -f $(LIB_TARGET)
+	rm -rf $(BUILD_DIR)
