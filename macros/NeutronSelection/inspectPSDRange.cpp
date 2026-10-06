@@ -1,24 +1,21 @@
 // inspectPSDRange.cpp
 // Usage: ./inspectPSDRange <file.root>
-//
-// Dumps waveforms + all PSD values for events whose PSD ratio falls in
-// [PSD_MIN, PSD_MAX]. Meant for looking at the suspicious high-PSD
-// events directly.
+// Dumps waveforms + PSD values for events whose PSD ratio falls in
+// [PSD_MIN, PSD_MAX].
 
 #include "Waveform.h"
 #include "PSD.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
 #include <TTree.h>
 #include <TCanvas.h>
+#include <TSystem.h>
 #include <TError.h>
 
 #include <iostream>
 #include <string>
-
-static const std::string OUTPUT_PATH = "results/";
-static const std::string INPUT_DIR   = "/Users/david/DTGAnalysis/data/testruns/";
 
 static const double POST_TRIGGER_PERCENT = 80.0;
 static const double N_COEFFICIENT        = 8.0;
@@ -31,30 +28,26 @@ static const double START_SHIFT_NS = 10.0;
 
 static const double AMPLITUDE_CUTOFF = 50.0;
 
-// PSD range to inspect
 static const double PSD_MIN = 0.4;
 static const double PSD_MAX = 1.0;
 
 static const int MAX_EVENTS = 1300;
 
-// Control window: sums the same number of samples as the long gate, but
-// from far away from the pulse (pure baseline, no signal). If this comes
-// out close to (qLong - qShort), that confirms the excess in qLong is a
-// baseline bias present throughout the record, not something specific to
-// the region right after the pulse.
-static const int CONTROL_START_SAMPLE = 600; // ~1200 ns -- far from any pulse
+// Control window: same width as the long gate, taken from a quiet region
+// far from any pulse, to check whether qLong's excess is a baseline bias.
+static const int CONTROL_START_SAMPLE = 600;
 
 int main(int argc, char** argv)
 {
     gROOT->SetBatch(kTRUE);
-    gErrorIgnoreLevel = kWarning; // suppress ROOT's "Info in <TCanvas::Print>" spam
+    gErrorIgnoreLevel = kWarning;
 
     if (argc != 2) {
         std::cerr << "Usage: " << argv[0] << " <input_file.root>" << std::endl;
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
 
     TFile* f = TFile::Open(inFile.c_str());
     if (!f || f->IsZombie()) {
@@ -77,13 +70,13 @@ int main(int argc, char** argv)
             SHORT_GATE_NS, LONG_GATE_NS, NS_PER_SAMPLE, AMPLITUDE_CUTOFF,
             START_SHIFT_NS);
 
-    std::string outName = argv[1];
-    for (char& ch : outName) if (ch == '.') ch = '_';
-    std::string pdfName = OUTPUT_PATH + "inspectPSD_" + outName + ".pdf";
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
+    gSystem->mkdir(outDir.c_str(), true);
+    std::string pdfName = outDir + "inspectPSD.pdf";
 
     TCanvas* c = new TCanvas("c", "", 900, 700);
     c->SetGrid();
-    gErrorIgnoreLevel = kWarning; // set again here -- ROOT can reset this during init
+    gErrorIgnoreLevel = kWarning;
     c->Print((pdfName + "[").c_str());
 
     std::cout << "PSD range: [" << PSD_MIN << ", " << PSD_MAX << "]"
@@ -102,8 +95,6 @@ int main(int argc, char** argv)
         PSD::Result r = psd.analyze(w.getSubtractedADC(), recordLength);
         if (r.psdRatio < PSD_MIN || r.psdRatio > PSD_MAX) continue;
 
-        // Control sum: same width as the long gate (longEnd - start
-        // samples), taken from a quiet region far from the pulse.
         const std::vector<double>& shape = w.getSubtractedADC();
         int controlWidth = r.longGateEndSample - r.pulseStartSample;
         int controlEnd = std::min(CONTROL_START_SAMPLE + controlWidth, recordLength);

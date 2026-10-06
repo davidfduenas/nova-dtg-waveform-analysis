@@ -1,31 +1,23 @@
 // selectNeutronBox2D.cpp
 // Usage: ./selectNeutronBox2D <file.root>
-//
-// Applies a 2D (PSD ratio, amplitude) box selection, but ONLY to events
-// already classified neutron-like by Waveform::isNeutronLike() -- this
-// is a refinement of Sample #1, not a new independent classifier.
-//
-// Box: PSD in [PSD_MIN, PSD_MAX], amplitude > AMPLITUDE_MIN.
-//   PASS   -> selectedNeutron_<file>.pdf
-//   REJECT -> rejectedNeutron_<file>.pdf
-// Both plotted with gate lines via PSD::drawEventWaveformAt (reusing
-// the existing, already-correct detected-pulse anchor).
+// Applies a 2D (PSD, amplitude) box selection to events already
+// classified neutron-like -- a refinement of Sample #1, not a new
+// classifier.
 
 #include "Waveform.h"
 #include "PSD.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
 #include <TTree.h>
 #include <TCanvas.h>
+#include <TSystem.h>
 #include <TError.h>
 
 #include <iostream>
 #include <string>
 #include <vector>
-
-static const std::string OUTPUT_PATH = "results/";
-static const std::string INPUT_DIR   = "/Users/david/DTGAnalysis/data/testruns/";
 
 static const double POST_TRIGGER_PERCENT = 80.0;
 static const double N_COEFFICIENT        = 8.0;
@@ -37,11 +29,9 @@ static const double LONG_GATE_NS   = 300.0;
 static const double START_SHIFT_NS = 7.0;
 
 static const double AMPLITUDE_CUTOFF = 50.0;
-
 static const double NEUTRON_AMPLITUDE_THRESHOLD = 50.0;
 static const int    NEUTRON_MIN_STABLE_SAMPLES  = 38;
 
-// The 2D box, applied only to neutron-like events.
 static const double PSD_MIN        = 0.7;
 static const double PSD_MAX        = 1.0;
 static const double AMPLITUDE_MIN  = 400.0;
@@ -58,7 +48,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
 
     TFile* f = TFile::Open(inFile.c_str());
     if (!f || f->IsZombie()) {
@@ -80,10 +70,10 @@ int main(int argc, char** argv)
     PSD psd(POST_TRIGGER_PERCENT, N_COEFFICIENT, CONSTANT_LATENCY,
             SHORT_GATE_NS, LONG_GATE_NS, NS_PER_SAMPLE, 0.0, START_SHIFT_NS);
 
-    std::string outName = argv[1];
-    for (char& ch : outName) if (ch == '.') ch = '_';
-    std::string passPdf   = OUTPUT_PATH + "selectedNeutron_" + outName + ".pdf";
-    std::string rejectPdf = OUTPUT_PATH + "rejectedNeutron_" + outName + ".pdf";
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
+    gSystem->mkdir(outDir.c_str(), true);
+    std::string passPdf   = outDir + "selected.pdf";
+    std::string rejectPdf = outDir + "rejected.pdf";
 
     TCanvas* c = new TCanvas("c", "", 900, 700);
     c->SetGrid();
@@ -104,7 +94,7 @@ int main(int argc, char** argv)
         double localPeak;
         bool isNeutron = w.findNeutronLikeStretch(NEUTRON_AMPLITUDE_THRESHOLD, NEUTRON_MIN_STABLE_SAMPLES,
                                                     startSample, localPeak);
-        if (!isNeutron) continue; // only applying this box to neutron-like events
+        if (!isNeutron) continue;
 
         nNeutronLike++;
 

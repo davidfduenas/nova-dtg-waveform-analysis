@@ -1,12 +1,10 @@
 // countNeutronLikeByAmplitude.cpp
 // Usage: ./countNeutronLikeByAmplitude <file.root>
-//
-// Finds every event classified neutron-like by Waveform::isNeutronLike(),
-// then prints how many of them have amplitude above each threshold in
-// AMPLITUDE_THRESHOLDS -- shows directly how the total neutron-like count
-// changes as the minimum amplitude requirement is raised.
+// Prints how the neutron-like count changes as the minimum amplitude
+// requirement is raised. Console output only, no plots.
 
 #include "Waveform.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -17,13 +15,10 @@
 #include <string>
 #include <vector>
 
-static const std::string INPUT_DIR = "/Users/david/DTGAnalysis/data/testruns/";
-
-static const double AMPLITUDE_CUTOFF = 50.0; // minimum to even be a "candidate" at all
+static const double AMPLITUDE_CUTOFF = 50.0;
 static const double NEUTRON_AMPLITUDE_THRESHOLD = 50.0;
 static const int    NEUTRON_MIN_STABLE_SAMPLES  = 38;
 
-// Minimum-amplitude thresholds to scan -- edit this list as needed.
 static const std::vector<double> AMPLITUDE_THRESHOLDS = {
     0, 50, 100, 200, 300, 400, 500, 600, 800, 1000, 1500, 2000, 3000, 4000, 5000
 };
@@ -38,7 +33,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
 
     TFile* f = TFile::Open(inFile.c_str());
     if (!f || f->IsZombie()) {
@@ -57,7 +52,6 @@ int main(int argc, char** argv)
     tree->SetBranchAddress("recordLength", &recordLength);
     tree->SetBranchAddress("waveform", waveform);
 
-    // Collect the local peak amplitude of every neutron-like event once.
     std::vector<double> neutronLikeAmps;
 
     Long64_t nEntries = tree->GetEntries();

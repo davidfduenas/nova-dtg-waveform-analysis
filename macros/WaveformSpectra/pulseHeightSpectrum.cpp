@@ -1,17 +1,10 @@
 // pulseHeightSpectrum.cpp
-// Compares the pulse-height spectrum of two runs (e.g. background vs DTG-on).
-// Unit (ADC counts or mV) is selectable via command-line argument; defaults
-// to ADC if not specified. Produces:
-//   1. spectrum (rate, events/s)
-//   2. counts (raw events, Background scaled to DTG-on's exposure time)
-//   3. ratio (DTG-on / Background)
-//   4. excess rate (DTG-on - Background, Hz)
-//   5. excess counts (DTG-on - Background, raw events, Background scaled)
-//
-// Usage:
-//   ./pulseHeightSpectrum <background_file.root> <dtgon_file.root> [unit: adc|mv]
+// Usage: ./pulseHeightSpectrum <background_file.root> <dtgon_file.root> [unit: adc|mv]
+// Compares pulse-height spectra of two runs: spectrum (rate), counts,
+// ratio, excess rate, and excess counts.
 
 #include "Waveform.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -29,16 +22,15 @@
 #include <algorithm>
 #include <cmath>
 
-static const std::string DATA_PATH   = "../data/testruns/";
-static const std::string OUTPUT_PATH = "results/";
+static std::string OUTPUT_PATH; // set in main() via Utilities::makeOutputDir
 
 static const bool USE_LOG_Y = true;
-static const int  SPECTRUM_N_BINS = 300;
+static const int  SPECTRUM_N_BINS = 500;
 static const int  RATIO_N_BINS    = 50;
 
 static const double AMP_MIN_ADC    = 0.0;
-static const double AMP_MAX_ADC    = 5000.0;
-static const double AMP_CUTOFF_ADC = 600.0;
+static const double AMP_MAX_ADC    = 15000.0;
+static const double AMP_CUTOFF_ADC = 500.0;
 
 struct EventData {
     Long64_t nEntries;
@@ -49,7 +41,7 @@ struct EventData {
 
 EventData readAllAmps(const std::string& filename)
 {
-    std::string fullPath = DATA_PATH + filename;
+    std::string fullPath = Utilities::INPUT_DIR + filename;
     TFile* f = TFile::Open(fullPath.c_str());
     if (!f || f->IsZombie()) {
         std::cerr << "ERROR: could not open " << fullPath << std::endl;
@@ -147,7 +139,7 @@ void makeSpectrumPlot(const EventData& bkgData, const EventData& dtgonData,
     leg->AddEntry(hDtgOn, "DTG-on",     "l");
     leg->Draw();
 
-    std::string outName = OUTPUT_PATH + "spectrum_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outName = OUTPUT_PATH + "spectrum_" + recLabel(bkgData.recordLength) + ".png";
     c1->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
 
@@ -164,7 +156,7 @@ void makeSpectrumPlot(const EventData& bkgData, const EventData& dtgonData,
     hDtgOn->Draw("HIST SAME");
     leg->Draw();
 
-    std::string outNameZ = OUTPUT_PATH + "spectrum_above_cutoff_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outNameZ = OUTPUT_PATH + "spectrum_above_cutoff_" + recLabel(bkgData.recordLength) + ".png";
     c1z->SaveAs(outNameZ.c_str());
     std::cout << "Saved: " << outNameZ << std::endl;
 }
@@ -210,7 +202,7 @@ void makeCountsPlot(const EventData& bkgData, const EventData& dtgonData,
     leg->AddEntry(hDtgOn, "DTG-on",               "l");
     leg->Draw();
 
-    std::string outName = OUTPUT_PATH + "counts_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outName = OUTPUT_PATH + "counts_" + recLabel(bkgData.recordLength) + ".png";
     c4->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
 
@@ -222,7 +214,7 @@ void makeCountsPlot(const EventData& bkgData, const EventData& dtgonData,
     hDtgOn->Draw("HIST SAME");
     leg->Draw();
 
-    std::string outNameZ = OUTPUT_PATH + "counts_above_cutoff_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outNameZ = OUTPUT_PATH + "counts_above_cutoff_" + recLabel(bkgData.recordLength) + ".png";
     c4z->SaveAs(outNameZ.c_str());
     std::cout << "Saved: " << outNameZ << std::endl;
 }
@@ -283,7 +275,7 @@ void makeExcessCountsPlot(const EventData& bkgData, const EventData& dtgonData,
     zeroLine->SetLineColor(kGray+2);
     zeroLine->Draw("SAME");
 
-    std::string outName = OUTPUT_PATH + "excess_counts_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outName = OUTPUT_PATH + "excess_counts_" + recLabel(bkgData.recordLength) + ".png";
     c5->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
 
@@ -314,7 +306,7 @@ void makeExcessCountsPlot(const EventData& bkgData, const EventData& dtgonData,
     zeroLineZ->SetLineColor(kGray+2);
     zeroLineZ->Draw("SAME");
 
-    std::string outNameZ = OUTPUT_PATH + "excess_counts_above_cutoff_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outNameZ = OUTPUT_PATH + "excess_counts_above_cutoff_" + recLabel(bkgData.recordLength) + ".png";
     c5z->SaveAs(outNameZ.c_str());
     std::cout << "Saved: " << outNameZ << std::endl;
 }
@@ -379,7 +371,7 @@ void makeRatioPlot(const EventData& bkgData, const EventData& dtgonData,
     line->SetLineColor(kGray+2);
     line->Draw("SAME");
 
-    std::string outName = OUTPUT_PATH + "ratio_spectrum_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outName = OUTPUT_PATH + "ratio_spectrum_" + recLabel(bkgData.recordLength) + ".png";
     c2->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
 
@@ -394,7 +386,7 @@ void makeRatioPlot(const EventData& bkgData, const EventData& dtgonData,
     lineZ->SetLineColor(kGray+2);
     lineZ->Draw("SAME");
 
-    std::string outNameZ = OUTPUT_PATH + "ratio_spectrum_zoom_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outNameZ = OUTPUT_PATH + "ratio_spectrum_zoom_" + recLabel(bkgData.recordLength) + ".png";
     c2z->SaveAs(outNameZ.c_str());
     std::cout << "Saved: " << outNameZ << std::endl;
 }
@@ -458,7 +450,7 @@ void makeCountsRatioPlot(const EventData& bkgData, const EventData& dtgonData,
     line2->SetLineColor(kGray+2);
     line2->Draw("SAME");
 
-    std::string outName2 = OUTPUT_PATH + "counts_ratio_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outName2 = OUTPUT_PATH + "counts_ratio_" + recLabel(bkgData.recordLength) + ".png";
     c8->SaveAs(outName2.c_str());
     std::cout << "Saved: " << outName2 << std::endl;
 
@@ -473,7 +465,7 @@ void makeCountsRatioPlot(const EventData& bkgData, const EventData& dtgonData,
     line2z->SetLineColor(kGray+2);
     line2z->Draw("SAME");
 
-    std::string outName2z = OUTPUT_PATH + "counts_ratio_zoom_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outName2z = OUTPUT_PATH + "counts_ratio_zoom_" + recLabel(bkgData.recordLength) + ".png";
     c8z->SaveAs(outName2z.c_str());
     std::cout << "Saved: " << outName2z << std::endl;
 }
@@ -533,7 +525,7 @@ void makeExcessRatePlot(const EventData& bkgData, const EventData& dtgonData,
     cutoffLine->SetLineColor(kRed);
     cutoffLine->Draw("SAME");
 
-    std::string outName = OUTPUT_PATH + "excess_rate_" + recLabel(bkgData.recordLength) + "_dtgandbkg.png";
+    std::string outName = OUTPUT_PATH + "excess_rate_" + recLabel(bkgData.recordLength) + ".png";
     c3->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
 }
@@ -621,6 +613,7 @@ int main(int argc, char** argv)
     double ampMax    = AMP_MAX_ADC    * unitScale;
     double ampCutoff = AMP_CUTOFF_ADC * unitScale;
 
+    OUTPUT_PATH = Utilities::makeOutputDir(argv[0], bkgFile, dtgonFile);
     gSystem->mkdir(OUTPUT_PATH.c_str(), true);
 
     gStyle->SetOptStat(0);

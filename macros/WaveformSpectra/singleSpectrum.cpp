@@ -1,14 +1,9 @@
 // singleSpectrum.cpp
-// Pulse-height spectrum for a single run, raw counts only -- no rate,
-// no background comparison.
-//
-// Input directory is hardcoded (see INPUT_DIR below); pass just the
-// filename, not the full path.
-//
-// Usage:
-//   ./singleSpectrum <file.root> [unit: adc|mv]
+// Usage: ./singleSpectrum <file.root> [unit: adc|mv]
+// Pulse-height spectrum for a single run, raw counts only.
 
 #include "Waveform.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -23,25 +18,20 @@
 #include <vector>
 #include <cmath>
 
-static const int    SPECTRUM_N_BINS = 300;
-static const double AMP_MIN_ADC     = 0.0;
-static const double AMP_MAX_ADC     = 5000.0;
+static const int    SPECTRUM_N_BINS = 500;
+static const double AMP_MIN_ADC     = 4000;
+static const double AMP_MAX_ADC     = 14000.0;
 static const bool   USE_LOG_Y       = true;
-static const std::string OUTPUT_PATH = "results/";
-
-// Hardcoded input directory -- pass just the filename on the command line.
-static const std::string INPUT_DIR = "/Users/david/DTGAnalysis/data/testruns/";
 
 std::string recLabel(int recordLength)
 {
-    double us = recordLength * 2.0 / 1000.0; // 2 ns/sample
+    double us = recordLength * 2.0 / 1000.0;
     char buf[32];
     snprintf(buf, sizeof(buf), "%gus", us);
     return std::string(buf);
 }
 
-// Reads all events' max amplitude from one file. Returns record length via
-// recLenOut. Amplitudes are returned in raw ADC counts (unscaled).
+// Reads all events' max amplitude and the record length from one file.
 std::vector<double> readAmps(const std::string& filename, int& recLenOut)
 {
     TFile* f = TFile::Open(filename.c_str());
@@ -96,7 +86,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
     std::string unit = (argc == 3) ? argv[2] : "adc";
 
     std::string unitLabel = (unit == "mv") ? "mV" : "ADC";
@@ -113,7 +103,8 @@ int main(int argc, char** argv)
 
     for (double a : amps) hSpectrum->Fill(a * unitScale);
 
-    gSystem->mkdir(OUTPUT_PATH.c_str(), true);
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
+    gSystem->mkdir(outDir.c_str(), true);
 
     gStyle->SetOptStat(0);
     gStyle->SetOptTitle(0);
@@ -133,7 +124,7 @@ int main(int argc, char** argv)
 
     hSpectrum->Draw("HIST");
 
-    std::string outName = OUTPUT_PATH + "single_spectrum_" + recLabel(recLen) + ".png";
+    std::string outName = outDir + "spectrum_" + recLabel(recLen) + ".png";
     c1->SaveAs(outName.c_str());
     std::cout << "Saved: " << outName << std::endl;
 

@@ -1,46 +1,37 @@
 // checkDecliningEnvelope.cpp
 // Usage: ./checkDecliningEnvelope <file.root>
-//
-// Checks Waveform::hasDecliningEnvelope() against two specific known
-// events (a real DTG neutron and a Co-60 false positive, both already
-// classified neutron-like by isNeutronLike()), then scans the full
-// neutron-like population and reports how many pass/fail the decline
-// check. Produces two annotated PDFs so the two populations can be
-// visually compared.
+// Checks two known events against hasDecliningEnvelope(), then scans the
+// full neutron-like population and plots declining vs flat events.
 
 #include "Waveform.h"
 #include "PSD.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
 #include <TTree.h>
 #include <TCanvas.h>
+#include <TSystem.h>
 #include <TError.h>
 
 #include <iostream>
 #include <string>
 #include <cstdio>
 
-static const std::string OUTPUT_PATH = "results/";
-static const std::string INPUT_DIR   = "/Users/david/DTGAnalysis/data/testruns/";
 static const double SAMPLE_SPACING_NS = 2.0;
-
 static const double AMPLITUDE_CUTOFF = 50.0;
 static const double NEUTRON_AMPLITUDE_THRESHOLD = 50.0;
 static const int    NEUTRON_MIN_STABLE_SAMPLES  = 38;
 
-// hasDecliningEnvelope() parameters -- same defaults as declared in Waveform.h.
 static const int NUM_CHUNKS = 5;
 static const int MIN_DECLINING_PAIRS = 3;
 
-// Two known events to check specifically -- update indices/labels to
-// match whichever file you're testing.
-static const long KNOWN_EVENT_1 = 653149; // e.g. Co-60 false positive
-static const long KNOWN_EVENT_2 = 107670; // e.g. real DTG neutron
+// Two known events to check specifically -- update to match the file under test.
+static const long KNOWN_EVENT_1 = 653149;
+static const long KNOWN_EVENT_2 = 107670;
 
 static const int MAX_SAMPLE_PLOTS = 200;
 
-// PSD configuration -- must match how this file was actually acquired.
 static const double POST_TRIGGER_PERCENT = 80.0;
 static const double N_COEFFICIENT        = 8.0;
 static const double CONSTANT_LATENCY     = 73.2889;
@@ -58,7 +49,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
 
     TFile* f = TFile::Open(inFile.c_str());
     if (!f || f->IsZombie()) {
@@ -80,7 +71,6 @@ int main(int argc, char** argv)
     Long64_t nEntries = tree->GetEntries();
     std::cout << inFile << ": " << nEntries << " total events" << std::endl;
 
-    // --- Part 1: two specific known events ---
     std::cout << "\n--- Specific known events ---" << std::endl;
     for (long idx : {KNOWN_EVENT_1, KNOWN_EVENT_2}) {
         if (idx < 0 || idx >= nEntries) {
@@ -99,21 +89,18 @@ int main(int argc, char** argv)
                   << "  hasDecliningEnvelope=" << declining << std::endl;
     }
 
-    // --- Part 2: full neutron-like population ---
     std::cout << "\n--- Full neutron-like population ---" << std::endl;
 
-    std::string outName = argv[1];
-    for (char& ch : outName) if (ch == '.') ch = '_';
-    std::string decliningPdf = OUTPUT_PATH + "neutronLike_declining_" + outName + ".pdf";
-    std::string flatPdf      = OUTPUT_PATH + "neutronLike_flat_" + outName + ".pdf";
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
+    gSystem->mkdir(outDir.c_str(), true);
+    std::string decliningPdf = outDir + "declining.pdf";
+    std::string flatPdf      = outDir + "flat.pdf";
 
     TCanvas* c = new TCanvas("c", "", 900, 700);
     c->SetGrid();
     c->Print((decliningPdf + "[").c_str());
     c->Print((flatPdf + "[").c_str());
 
-    // Only used here to compute the PSD ratio for each plotted event's
-    // label -- amplitudeCutoff=0 since selection already happened above.
     PSD psd(POST_TRIGGER_PERCENT, N_COEFFICIENT, CONSTANT_LATENCY,
             SHORT_GATE_NS, LONG_GATE_NS, SAMPLE_SPACING_NS, 0.0, START_SHIFT_NS);
 

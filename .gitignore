@@ -2,3 +2,22 @@
 *.png
 *.root
 *.txt
+
+# Compiled macro binaries (built in-place next to their .cpp, one level
+# inside macros/<subfolder>/). Everything under a macros subfolder is
+# ignored by default, then source files, the Makefile, text files, and
+# the results/ output folder are explicitly un-ignored.
+macros/*/*
+!macros/*/*.cpp
+!macros/*/*.C
+!macros/*/*.h
+!macros/*/Makefile
+!macros/*/*.txt
+!macros/*/results
+ 
+# Shared library built from src/
+lib/*.so
+ 
+# macOS
+.DS_Store
+**/.DS_Store

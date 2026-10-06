@@ -1,13 +1,10 @@
 // plotEventByIndex.cpp
-// Plots the full waveform for specific event indices, given directly on
-// the command line -- no amplitude filtering, just look up exact events.
-// Input directory is hardcoded (see INPUT_DIR below); pass just the
-// filename, not the full path.
-//
-// Usage:
-//   ./plotEventByIndex <file.root> <event1> [event2] [event3] ...
+// Usage: ./plotEventByIndex <file.root> <event1> [event2] [event3] ...
+// Plots the full waveform (baseline-subtracted and raw) for specific
+// event indices, no amplitude filtering.
 
 #include "Waveform.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -16,18 +13,13 @@
 #include <TCanvas.h>
 #include <TStyle.h>
 #include <TSystem.h>
-#include <TPaveText.h>
 
 #include <iostream>
 #include <string>
 #include <vector>
 #include <cmath>
 
-static const std::string OUTPUT_PATH = "results/";
-static const double SAMPLE_SPACING_NS = 2.0; // 500 MS/s digitizer
-
-// Hardcoded input directory -- pass just the filename on the command line.
-static const std::string INPUT_DIR = "/Users/david/DTGAnalysis/data/testruns/";
+static const double SAMPLE_SPACING_NS = 2.0;
 
 int main(int argc, char** argv)
 {
@@ -39,7 +31,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
     std::vector<Long64_t> eventIndices;
     for (int i = 2; i < argc; i++) {
         eventIndices.push_back(std::atoll(argv[i]));
@@ -65,7 +57,8 @@ int main(int argc, char** argv)
     Long64_t nEntries = tree->GetEntries();
     std::cout << inFile << ": " << nEntries << " total events" << std::endl;
 
-    gSystem->mkdir(OUTPUT_PATH.c_str(), true);
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
+    gSystem->mkdir(outDir.c_str(), true);
 
     gStyle->SetOptStat(0);
     gStyle->SetOptTitle(1);
@@ -75,8 +68,8 @@ int main(int argc, char** argv)
     TCanvas* c = new TCanvas("c", "Event Waveforms", 900, 700);
     c->SetGrid();
 
-    std::string pdfName = OUTPUT_PATH + "events_by_index.pdf";
-    c->Print((pdfName + "[").c_str()); // open multi-page PDF
+    std::string pdfName = outDir + "events_by_index.pdf";
+    c->Print((pdfName + "[").c_str());
 
     for (Long64_t idx : eventIndices) {
         if (idx < 0 || idx >= nEntries) {
@@ -86,7 +79,7 @@ int main(int argc, char** argv)
         }
 
         tree->GetEntry(idx);
-        Waveform w(waveform, recordLength, true); // keepFullWaveform=true for full shape
+        Waveform w(waveform, recordLength, true);
 
         const std::vector<double>& shape = w.getSubtractedADC();
 
@@ -108,9 +101,8 @@ int main(int argc, char** argv)
 
         std::cout << "Event " << idx << ": maxAmp=" << w.getMaxAmpADC() << " ADC" << std::endl;
 
-        // Raw (non-baseline-subtracted) waveform, for checking whether the
-        // first ~100 samples are genuinely flat/quiet or already trending
-        // before any baseline calculation is applied.
+        // Raw (non-baseline-subtracted) waveform, to check whether the
+        // pretrigger region is genuinely flat before baseline calculation.
         TH1D* hRaw = new TH1D(("hRaw" + std::to_string(idx)).c_str(),
                                ("Event " + std::to_string(idx) + " (raw)").c_str(),
                                recordLength, 0, recordLength * SAMPLE_SPACING_NS);
@@ -126,8 +118,6 @@ int main(int argc, char** argv)
         hRaw->Draw("HIST");
         c->Print(pdfName.c_str());
 
-        // First-100-sample mean/RMS of the RAW signal, to check numerically
-        // whether the assumed quiet pretrigger region is actually flat.
         int nCheck = std::min(100, recordLength);
         double sum = 0, sum2 = 0;
         for (int s = 0; s < nCheck; s++) { sum += waveform[s]; sum2 += (double)waveform[s]*waveform[s]; }
@@ -141,7 +131,7 @@ int main(int argc, char** argv)
         delete hRaw;
     }
 
-    c->Print((pdfName + "]").c_str()); // close multi-page PDF
+    c->Print((pdfName + "]").c_str());
     std::cout << "Saved: " << pdfName << std::endl;
 
     f->Close();

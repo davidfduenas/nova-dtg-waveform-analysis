@@ -1,18 +1,11 @@
 // checkNeutronLike.cpp
 // Usage: ./checkNeutronLike <file.root>
-//
-// Scans every event with amplitude > AMPLITUDE_CUTOFF, classifies each
-// into exactly one of three mutually exclusive categories, and produces
-// an annotated multi-page PDF for each:
-//   neutronLike_<file>.pdf : isNeutronLike() == true
-//   gammaLike_<file>.pdf   : isNeutronLike() == false, single pulse
-//   pileup_<file>.pdf      : isNeutronLike() == false, multiple pulses
-// Each waveform is drawn with the 50 ADC threshold line, the 76 ns
-// sustained-window markers where applicable, and the event's PSD ratio
-// (computed via PSD::analyzeAt, anchored at the actual detected pulse).
+// Classifies each candidate event as neutron-like, gamma-like (single
+// pulse), or pile-up, and plots a sample of each.
 
 #include "Waveform.h"
 #include "PSD.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -29,24 +22,15 @@
 #include <cstdlib>
 #include <cstdio>
 
-static const std::string OUTPUT_PATH = "results/";
-static const std::string INPUT_DIR   = "/Users/david/DTGAnalysis/data/testruns/";
 static const double SAMPLE_SPACING_NS = 2.0;
-
 static const double AMPLITUDE_CUTOFF = 50.0;
 
-// isNeutronLike() parameters -- same defaults as declared in Waveform.h.
 static const double NEUTRON_AMPLITUDE_THRESHOLD = 50.0;
 static const int    NEUTRON_MIN_STABLE_SAMPLES  = 38;
+static const int    PILEUP_MIN_QUIET_SAMPLES    = 15;
 
-// countSeparatePulses() parameter for splitting single-pulse (gamma-like)
-// from multi-pulse (pile-up) events.
-static const int PILEUP_MIN_QUIET_SAMPLES = 15;
-
-// How many sample waveforms to plot for each class (neutron-like / not).
 static const int MAX_SAMPLE_PLOTS = 1000;
 
-// PSD configuration -- must match how this file was actually acquired.
 static const double POST_TRIGGER_PERCENT = 80.0;
 static const double N_COEFFICIENT        = 8.0;
 static const double CONSTANT_LATENCY     = 73.2889;
@@ -64,7 +48,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
 
     TFile* f = TFile::Open(inFile.c_str());
     if (!f || f->IsZombie()) {
@@ -85,29 +69,21 @@ int main(int argc, char** argv)
 
     Long64_t nEntries = tree->GetEntries();
     std::cout << inFile << ": " << nEntries << " total events" << std::endl;
-    std::cout << "isNeutronLike(amplitudeThreshold=" << NEUTRON_AMPLITUDE_THRESHOLD
-              << ", minStableSamples=" << NEUTRON_MIN_STABLE_SAMPLES << ")\n" << std::endl;
 
     gStyle->SetOptTitle(0);
     gStyle->SetOptStat(0);
     gStyle->SetPadGridX(true);
     gStyle->SetPadGridY(true);
 
-    std::string outName = argv[1];
-    for (char& ch : outName) if (ch == '.') ch = '_';
-    std::string neutronLikePdf = OUTPUT_PATH + "neutronLike_" + outName + ".pdf";
-    std::string gammaLikePdf   = OUTPUT_PATH + "gammaLike_" + outName + ".pdf";
-    std::string pileupPdf      = OUTPUT_PATH + "pileup_" + outName + ".pdf";
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
+    gSystem->mkdir(outDir.c_str(), true);
 
-    gSystem->mkdir(OUTPUT_PATH.c_str(), true);
+    std::string neutronLikePdf = outDir + "neutronLike.pdf";
+    std::string gammaLikePdf   = outDir + "gammaLike.pdf";
+    std::string pileupPdf      = outDir + "pileup.pdf";
 
-    // Only used here to compute the PSD ratio for each plotted event's
-    // label -- amplitudeCutoff=0 since selection already happened above.
     PSD psd(POST_TRIGGER_PERCENT, N_COEFFICIENT, CONSTANT_LATENCY,
             SHORT_GATE_NS, LONG_GATE_NS, SAMPLE_SPACING_NS, 0.0, START_SHIFT_NS);
-
-    std::cout << "\n--- Overall neutron-like fraction (amplitude > "
-              << AMPLITUDE_CUTOFF << ") ---" << std::endl;
 
     long nCandidates = 0, nNeutronLike = 0, nGammaLike = 0, nPileup = 0;
     int neutronLikePlotted = 0, gammaLikePlotted = 0, pileupPlotted = 0;
@@ -160,8 +136,6 @@ int main(int argc, char** argv)
             } else {
                 nPileup++;
                 if (pileupPlotted < MAX_SAMPLE_PLOTS) {
-                    // Pile-up has no single well-defined pulse start; use
-                    // the first detected pulse's start just for display.
                     int anchorStart = pulseStarts.empty() ? 0 : pulseStarts[0];
                     PSD::Result r = psd.analyzeAt(shape, recordLength, anchorStart);
 
