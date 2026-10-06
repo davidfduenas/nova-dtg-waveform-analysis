@@ -1,25 +1,10 @@
 // measureConstantLatency.cpp
 // Usage: ./measureConstantLatency <background_file.root>
-//
-// Example, using our actual 2us setup:
-//   recordLength = 1030 (rounded up from requested 1024)
-//   PostTriggerValue = 103 (read from register 0x8114)
-//   N = 8
-//   intendedNpost = 103 * 8 = 824
-//   intendedNpre  = 1030 - 824 = 206   (this is the 20% pretrigger we asked for)
-//
-//   Then we measure, from real data, the sample where each event's signal
-//   crosses 50 ADC (the real trigger threshold). Say the average of that
-//   comes out to 132.
-//
-//   ConstantLatency = intendedNpre - measured = 206 - 132 = 74
-//
-//   So the real pretrigger is only 132 samples (~264 ns, ~12.8%), not the
-//   206 samples (20%) we asked for -- the other 74 samples get eaten by
-//   the board's trigger-processing delay before recording actually starts
-//   counting post-trigger samples.
+// Measures ConstantLatency from the mean threshold-crossing sample over
+// a background run (see UM5118 Sec 1.24, register 0x8114 formula).
 
 #include "Waveform.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -35,12 +20,9 @@
 #include <algorithm>
 #include <cmath>
 
-static const std::string OUTPUT_PATH = "results/";
-static const std::string INPUT_DIR   = "/Users/david/DTGAnalysis/data/testruns/";
-
-static const double POST_TRIGGER_VALUE = 103.0; // from register readback
-static const double N_COEFFICIENT      = 8.0;   // 730 family
-static const double THRESHOLD_ADC      = 50.0;  // hardware self-trigger threshold
+static const double POST_TRIGGER_VALUE = 103.0;
+static const double N_COEFFICIENT      = 8.0;
+static const double THRESHOLD_ADC      = 50.0;
 
 int main(int argc, char** argv)
 {
@@ -51,7 +33,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
 
     TFile* f = TFile::Open(inFile.c_str());
     if (!f || f->IsZombie()) {
@@ -119,7 +101,7 @@ int main(int argc, char** argv)
     double intendedNpre  = recordLength - intendedNpost;
     double constantLatency = intendedNpre - mean;
 
-    const double NS_PER_SAMPLE = 2.0; // 500 MS/s digitizer
+    const double NS_PER_SAMPLE = 2.0;
 
     std::cout << "\nintendedNpost = " << intendedNpost << std::endl;
     std::cout << "intendedNpre = " << intendedNpre << std::endl;
@@ -134,16 +116,15 @@ int main(int argc, char** argv)
     std::cout << "measured post-trigger = " << measuredNpost << " +/- " << stdErrMean
               << " samples = " << measuredNpost * NS_PER_SAMPLE << " +/- " << stdErrMean * NS_PER_SAMPLE << " ns" << std::endl;
 
-    gSystem->mkdir(OUTPUT_PATH.c_str(), true);
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
+    gSystem->mkdir(outDir.c_str(), true);
+
     gStyle->SetOptTitle(0);
     gStyle->SetOptStat(1111);
     gStyle->SetPadGridX(true);
     gStyle->SetPadGridY(true);
 
-    // Crossing sample is a plain integer, so use exactly 1 sample per bin.
-    // Zoom to +/- 6 stdDev around the mean -- the real population lives in
-    // a tight window; a handful of stray early/late crossings shouldn't
-    // stretch the whole axis out and squash everything else flat.
+    // Zoom to +/- 6 stdDev so a few stray crossings don't stretch the axis.
     int zoomMin = (int)std::floor(mean - 6 * stdDev);
     int zoomMax = (int)std::ceil(mean + 6 * stdDev);
     if (zoomMin < 0) zoomMin = 0;
@@ -157,7 +138,7 @@ int main(int argc, char** argv)
     int nBins = zoomMax - zoomMin + 1;
     TH1D* h = new TH1D("hCrossingSample", ";Sample index;Events",
                         nBins, zoomMin - 0.5, zoomMax + 0.5);
-    h->StatOverflows(kTRUE); // so the stat box matches the printed values above, not just the visible range
+    h->StatOverflows(kTRUE);
     for (double v : crossingSamples) h->Fill(v);
 
     TCanvas* c = new TCanvas("c", "", 900, 700);
@@ -168,9 +149,7 @@ int main(int argc, char** argv)
     std::cout << "\nEvents outside zoomed plot range [" << zoomMin << ", " << zoomMax
               << "]: " << outsideZoomCount << " / " << crossingSamples.size() << std::endl;
 
-    std::string outName = argv[1];
-    for (char& ch : outName) if (ch == '.') ch = '_';
-    std::string pdfName = OUTPUT_PATH + "crossingSampleDistribution_" + outName + ".pdf";
+    std::string pdfName = outDir + "crossingSampleDistribution.pdf";
     c->Print(pdfName.c_str());
     std::cout << "Saved: " << pdfName << std::endl;
 

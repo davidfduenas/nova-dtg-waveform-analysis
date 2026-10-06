@@ -1,14 +1,10 @@
 // plotWaveforms.cpp
-// Scans events in a converted ROOT file, finds the first N events whose
-// max amplitude falls within [low, high] (in ADC counts or mV, selectable),
-// and saves each one's baseline-subtracted waveform as a page in one PDF.
-// The PDF's first page shows the run duration and event count. The output
-// filename includes the record length and the selected amplitude range.
-//
-// Usage:
-//   ./plotWaveforms <input_file.root> <low> <high> <N> [unit: adc|mv]
+// Usage: ./plotWaveforms <input_file.root> <low> <high> <N> [unit: adc|mv]
+// Finds the first N events with amplitude in [low, high] and saves each
+// waveform as a page in one PDF, with a run-info first page.
 
 #include "Waveform.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -27,17 +23,8 @@
 #include <cmath>
 #include <sstream>
 
-std::string detectLabel(const std::string& path)
-{
-    std::string lower = path;
-    std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
-    if (lower.find("bkg") != std::string::npos) return "bkg";
-    return "dtgon";
-}
-
-// Formats a number for use in a filename: whole numbers with no decimal
-// point, non-whole numbers with one decimal place -- avoids ugly trailing
-// zeros like "200.00" while still handling fractional mV values cleanly.
+// Formats a number for filenames: whole numbers with no decimal point,
+// otherwise one decimal place.
 std::string formatAmpForFilename(double val)
 {
     std::ostringstream oss;
@@ -54,8 +41,6 @@ int main(int argc, char** argv)
 {
     gROOT->SetBatch(kTRUE);
 
-    static const std::string DATA_PATH   = "../data/testruns/";
-    static const std::string OUTPUT_PATH = "results/";
     static const double SAMPLE_SPACING_NS = 2.0;
 
     if (argc < 5 || argc > 6) {
@@ -78,9 +63,7 @@ int main(int argc, char** argv)
     bool useMv = (unit == "mv");
     std::string unitLabel = useMv ? "mV" : "ADC";
 
-    std::string label = detectLabel(inputFile);
-
-    std::string fullPath = DATA_PATH + inputFile;
+    std::string fullPath = Utilities::INPUT_DIR + inputFile;
     TFile* f = TFile::Open(fullPath.c_str());
     if (!f || f->IsZombie()) {
         std::cerr << "ERROR: could not open " << fullPath << std::endl;
@@ -108,7 +91,8 @@ int main(int argc, char** argv)
     double t_end = unixTime;
     double duration = t_end - t_start;
 
-    gSystem->mkdir(OUTPUT_PATH.c_str(), true);
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
+    gSystem->mkdir(outDir.c_str(), true);
     gStyle->SetOptStat(0);
     gStyle->SetOptTitle(1);
     gStyle->SetPadGridX(true);
@@ -118,15 +102,13 @@ int main(int argc, char** argv)
     int recUs = std::round(recNs / 1000.0);
 
     std::string rangeLabel = formatAmpForFilename(low) + "to" + formatAmpForFilename(high) + unitLabel;
-    std::string pdfName = OUTPUT_PATH + "waveforms_" + label + "_" + std::to_string(recUs) + "us_"
-                         + rangeLabel + ".pdf";
+    std::string pdfName = outDir + "waveforms_" + std::to_string(recUs) + "us_" + rangeLabel + ".pdf";
 
     TCanvas* c = new TCanvas("c", "", 900, 700);
     c->SetGrid();
 
     c->Print((pdfName + "[").c_str());
 
-    // --- Info page ---
     c->Clear();
     c->SetGrid(0,0);
     TPaveText* info = new TPaveText(0.1, 0.3, 0.9, 0.8, "NDC");

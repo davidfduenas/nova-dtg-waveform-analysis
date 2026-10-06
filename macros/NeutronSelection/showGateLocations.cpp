@@ -1,45 +1,33 @@
 // showGateLocations.cpp
 // Usage: ./showGateLocations <file.root>
-//
-// Classifies each candidate event the same way as runPSDSamples13.cpp,
-// but anchors PSD's gates at the ACTUAL detected pulse location (from
-// Waveform::findNeutronLikeStretch() / countSeparatePulses()) instead of
-// the fixed acquisition-timing formula. Amplitude used for PSD's x-axis
-// is also the LOCAL peak of that same detected pulse, not the whole-
-// record max -- so both axes always come from the same physical event.
-//
-// Produces two annotated PDFs (gate lines drawn via PSD::drawEventWaveformAt):
-//   gateLocations_neutronLike_<file>.pdf
-//   gateLocations_gammaLike_<file>.pdf
+// Classifies each candidate event and draws PSD gates anchored at the
+// actual detected pulse (not the fixed acquisition-timing formula).
 
 #include "Waveform.h"
 #include "PSD.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
 #include <TTree.h>
 #include <TCanvas.h>
+#include <TSystem.h>
 #include <TError.h>
 
 #include <iostream>
 #include <string>
 #include <vector>
 
-static const std::string OUTPUT_PATH = "results/";
-static const std::string INPUT_DIR   = "/Users/david/DTGAnalysis/data/testruns/";
-
 static const double POST_TRIGGER_PERCENT = 80.0;
 static const double N_COEFFICIENT        = 8.0;
 static const double CONSTANT_LATENCY     = 73.2889;
 static const double NS_PER_SAMPLE        = 2.0;
 
-static const double SHORT_GATE_NS = 40.0;
-static const double LONG_GATE_NS  = 300.0;
-static const double START_SHIFT_NS = 7.0; // pre-gate, applied uniformly to both samples
+static const double SHORT_GATE_NS  = 40.0;
+static const double LONG_GATE_NS   = 300.0;
+static const double START_SHIFT_NS = 7.0;
 
 static const double AMPLITUDE_CUTOFF = 50.0;
-
-// isNeutronLike() / countSeparatePulses() parameters.
 static const double NEUTRON_AMPLITUDE_THRESHOLD = 50.0;
 static const int    NEUTRON_MIN_STABLE_SAMPLES  = 38;
 static const int    PILEUP_MIN_QUIET_SAMPLES    = 15;
@@ -56,7 +44,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
 
     TFile* f = TFile::Open(inFile.c_str());
     if (!f || f->IsZombie()) {
@@ -75,15 +63,13 @@ int main(int argc, char** argv)
     tree->SetBranchAddress("recordLength", &recordLength);
     tree->SetBranchAddress("waveform", waveform);
 
-    // Note: gate widths are fixed regardless of anchor -- only the START
-    // point changes (explicit detected location instead of the formula).
     PSD psd(POST_TRIGGER_PERCENT, N_COEFFICIENT, CONSTANT_LATENCY,
             SHORT_GATE_NS, LONG_GATE_NS, NS_PER_SAMPLE, 0.0, START_SHIFT_NS);
 
-    std::string outName = argv[1];
-    for (char& ch : outName) if (ch == '.') ch = '_';
-    std::string neutronPdf = OUTPUT_PATH + "gateLocations_neutronLike_" + outName + ".pdf";
-    std::string gammaPdf   = OUTPUT_PATH + "gateLocations_gammaLike_" + outName + ".pdf";
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
+    gSystem->mkdir(outDir.c_str(), true);
+    std::string neutronPdf = outDir + "gateLocations_neutronLike.pdf";
+    std::string gammaPdf   = outDir + "gateLocations_gammaLike.pdf";
 
     TCanvas* c = new TCanvas("c", "", 900, 700);
     c->SetGrid();

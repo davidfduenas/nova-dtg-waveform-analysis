@@ -1,21 +1,12 @@
 // runPSDSamples13.cpp
 // Usage: ./runPSDSamples13 <file.root>
-//
-// Classifies every candidate event (amplitude > AMPLITUDE_CUTOFF) into:
-//   Sample #1: isNeutronLike() == true                 -> neutron candidates
-//   Sample #2: isNeutronLike() == false                 -> gammas + pile-up
-//     -> split further via countSeparatePulses():
-//        single pulse (size==1)  -> Sample #3 (clean single gammas)
-//        multi pulse  (size>=2)  -> excluded (pile-up)
-//
-// Runs PSD on Sample #1 and Sample #3 separately, saving two independent
-// sets of plots.
-//
-// IMPORTANT: POST_TRIGGER_PERCENT/CONSTANT_LATENCY/gate widths below must
-// match how this file was actually acquired -- see PSD.h for details.
+// Classifies candidates into Sample #1 (neutron-like) and Sample #3
+// (single-pulse gammas), runs PSD on each, saves plots for both plus a
+// combined PSD-vs-amplitude plot.
 
 #include "Waveform.h"
 #include "PSD.h"
+#include "Utilities.h"
 
 #include <TROOT.h>
 #include <TFile.h>
@@ -24,9 +15,6 @@
 #include <iostream>
 #include <string>
 #include <vector>
-
-static const std::string OUTPUT_PATH = "results/";
-static const std::string INPUT_DIR   = "/Users/david/DTGAnalysis/data/testruns/";
 
 static const double POST_TRIGGER_PERCENT = 80.0;
 static const double N_COEFFICIENT        = 8.0;
@@ -38,8 +26,6 @@ static const double LONG_GATE_NS   = 300.0;
 static const double START_SHIFT_NS = 7.0;
 
 static const double AMPLITUDE_CUTOFF = 50.0;
-
-// isNeutronLike() / countSeparatePulses() parameters.
 static const double NEUTRON_AMPLITUDE_THRESHOLD = 50.0;
 static const int    NEUTRON_MIN_STABLE_SAMPLES  = 38;
 static const int    PILEUP_MIN_QUIET_SAMPLES    = 15;
@@ -53,7 +39,7 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    std::string inFile = INPUT_DIR + argv[1];
+    std::string inFile = Utilities::INPUT_DIR + argv[1];
 
     TFile* f = TFile::Open(inFile.c_str());
     if (!f || f->IsZombie()) {
@@ -69,19 +55,26 @@ int main(int argc, char** argv)
 
     Int_t recordLength;
     int waveform[20000];
+    Double_t unixTime;
     tree->SetBranchAddress("recordLength", &recordLength);
     tree->SetBranchAddress("waveform", waveform);
+    tree->SetBranchAddress("unixTime", &unixTime);
 
-    // amplitudeCutoff=0 for both PSD instances: selection into each
-    // sample already happened via isNeutronLike()/countSeparatePulses()
-    // before addEvent() is called, so PSD shouldn't re-filter by amplitude.
+    Long64_t nEntries = tree->GetEntries();
+
+    tree->GetEntry(0);
+    double t_start = unixTime;
+    tree->GetEntry(nEntries - 1);
+    double t_end = unixTime;
+    double duration = t_end - t_start;
+
+    std::cout << inFile << ": " << nEntries << " total events, run duration = "
+              << duration << " s" << std::endl;
+
     PSD psdSample1(POST_TRIGGER_PERCENT, N_COEFFICIENT, CONSTANT_LATENCY,
                    SHORT_GATE_NS, LONG_GATE_NS, NS_PER_SAMPLE, 0.0, START_SHIFT_NS);
     PSD psdSample3(POST_TRIGGER_PERCENT, N_COEFFICIENT, CONSTANT_LATENCY,
                    SHORT_GATE_NS, LONG_GATE_NS, NS_PER_SAMPLE, 0.0, START_SHIFT_NS);
-
-    Long64_t nEntries = tree->GetEntries();
-    std::cout << inFile << ": " << nEntries << " total events" << std::endl;
 
     long nCandidates = 0;
     long nSample1 = 0, nSample2 = 0, nSample3 = 0, nPileupExcluded = 0;
@@ -114,28 +107,26 @@ int main(int argc, char** argv)
         }
     }
 
-    std::string outName = argv[1];
-    for (char& ch : outName) if (ch == '.') ch = '_';
+    std::string outDir = Utilities::makeOutputDir(argv[0], argv[1]);
 
-    psdSample1.savePlots(OUTPUT_PATH, "sample1_neutronlike_" + outName);
-    psdSample3.savePlots(OUTPUT_PATH, "sample3_singlegamma_" + outName);
-    PSD::saveCombinedPlot(psdSample3, psdSample1, OUTPUT_PATH, outName);
+    psdSample1.savePlots(outDir, "sample1_neutronlike");
+    psdSample3.savePlots(outDir, "sample3_singlegamma");
+    PSD::saveCombinedPlot(psdSample3, psdSample1, outDir, "combined");
 
     std::cout << "\nTotal candidates (amplitude > " << AMPLITUDE_CUTOFF << "): " << nCandidates << std::endl;
     std::cout << "Sample #1 (neutron-like): " << nSample1
-               << " (" << 100.0 * nSample1 / nCandidates << "%)" << std::endl;
+               << " (" << 100.0 * nSample1 / nCandidates << "%)"
+               << "  [" << (duration > 0 ? nSample1 / duration : 0) << " Hz]" << std::endl;
     std::cout << "Sample #2 (not neutron-like): " << nSample2
                << " (" << 100.0 * nSample2 / nCandidates << "%)" << std::endl;
     std::cout << "  -> Sample #3 (single pulse, kept): " << nSample3
-               << " (" << 100.0 * nSample3 / nCandidates << "% of total)" << std::endl;
+               << " (" << 100.0 * nSample3 / nCandidates << "% of total)"
+               << "  [" << (duration > 0 ? nSample3 / duration : 0) << " Hz]" << std::endl;
     std::cout << "  -> Pile-up (multi pulse, excluded): " << nPileupExcluded
-               << " (" << 100.0 * nPileupExcluded / nCandidates << "% of total)" << std::endl;
-
-    std::cout << "\nSaved PSD plots for Sample #1 -> psdRatio_sample1_neutronlike_" << outName << ".pdf"
-               << " and psdVsAmplitude_sample1_neutronlike_" << outName << ".pdf" << std::endl;
-    std::cout << "Saved PSD plots for Sample #3 -> psdRatio_sample3_singlegamma_" << outName << ".pdf"
-               << " and psdVsAmplitude_sample3_singlegamma_" << outName << ".pdf" << std::endl;
-    std::cout << "Saved combined plot -> psdVsAmplitude_combined_" << outName << ".pdf" << std::endl;
+               << " (" << 100.0 * nPileupExcluded / nCandidates << "% of total)"
+               << "  [" << (duration > 0 ? nPileupExcluded / duration : 0) << " Hz]" << std::endl;
+    std::cout << "\nRun duration: " << duration << " s" << std::endl;
+    std::cout << "Saved plots to: " << outDir << std::endl;
 
     f->Close();
     return 0;
